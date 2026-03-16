@@ -23,7 +23,7 @@ Each source has a different schema, date format, and data characteristics. Your 
 
 ### GCS Location
 ```
-gs://[BUCKET_NAME]/data-engineer-interview/
+gs://irestore-data-eng-assignment/data-engineer-interview/
 ├── costco/costco_sales.csv
 ├── amazon/amazon_orders.parquet
 └── shopify/shopify_orders.json
