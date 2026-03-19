@@ -1,24 +1,148 @@
-# Staging models schema
-# This is where you define your staging models and their tests
-#
-# Example structure:
-# version: 2
-#
-# models:
-#   - name: stg_costco_sales
-#     description: "Staged Costco sales data"
-#     columns:
-#       - name: transaction_id
-#         description: "Unique transaction identifier"
-#         tests:
-#           - not_null
-#
-#   - name: stg_amazon_orders
-#     description: "Staged Amazon orders data"
-#
-#   - name: stg_shopify_orders
-#     description: "Staged Shopify orders data"
-
 version: 2
 
-models: []
+# No sources block needed — staging models read directly from files
+# via DuckDB read_csv_auto / read_parquet / read_json_auto
+
+models:
+  - name: stg_costco_sales
+    description: >
+      Cleaned Costco sales data at line-item grain. Reads from costco_sample.csv.
+      Strips $ from monetary amounts, parses MM/DD/YYYY dates.
+      NULL preserved for guest transactions (no member_id).
+      All transactions default to order_status = 'completed' — no status field in source.
+    meta:
+      owner: data-engineering
+      source_file: data/samples/costco_sample.csv
+    columns:
+      - name: sale_id
+        description: "Globally unique line-item ID: costco_{transaction_id}_{product_sku}"
+        tests:
+          - unique
+          - not_null
+      - name: source_system
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['costco']
+              config:
+                severity: warn
+      - name: source_order_id
+        tests:
+          - not_null
+      - name: order_date
+        tests:
+          - not_null
+      - name: gross_amount
+        tests:
+          - not_null
+      - name: order_status
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['completed', 'cancelled', 'refunded', 'partial_refund', 'pending']
+              config:
+                severity: warn
+      - name: is_cancelled
+        tests:
+          - not_null
+      - name: is_refunded
+        tests:
+          - not_null
+
+  - name: stg_amazon_sales
+    description: >
+      Cleaned Amazon order data at line-item grain. Reads from amazon_sample.parquet.
+      Normalizes order statuses, extracts date from ISO timestamp.
+      refund_amount populated for Returned orders only.
+      payment_method is NULL — fulfillment_channel (FBA/FBM) describes logistics, not payment.
+    meta:
+      owner: data-engineering
+      source_file: data/samples/amazon_sample.parquet
+    columns:
+      - name: sale_id
+        description: "Globally unique line-item ID: amazon_{order_id}_{product_asin}"
+        tests:
+          - unique
+          - not_null
+      - name: source_system
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['amazon']
+              config:
+                severity: warn
+      - name: source_order_id
+        tests:
+          - not_null
+      - name: order_date
+        tests:
+          - not_null
+      - name: gross_amount
+        tests:
+          - not_null
+      - name: order_status
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['completed', 'cancelled', 'refunded', 'partial_refund', 'pending']
+              config:
+                severity: warn
+      - name: is_cancelled
+        tests:
+          - not_null
+      - name: is_refunded
+        tests:
+          - not_null
+
+  - name: stg_shopify_sales
+    description: >
+      Cleaned Shopify order data at line-item grain. Reads from int_shopify_line_items.
+      Tax allocated proportionally using the line net-before-tax share of the order net-before-tax.
+      shipping_amount and refund_amount are NULL because explicit line-level values are not available in the sample source.
+      quantity=0 line items filtered upstream in int_shopify_line_items (SHP00000004 Baseball Cap).
+      financial_status normalized to standard order_status values.
+    meta:
+      owner: data-engineering
+      source_file: data/samples/shopify_sample.json
+    columns:
+      - name: sale_id
+        description: "Globally unique line-item ID: shopify_{order_id}_{sku}"
+        tests:
+          - unique
+          - not_null
+      - name: source_system
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['shopify']
+              config:
+                severity: warn
+      - name: source_order_id
+        tests:
+          - not_null
+      - name: order_date
+        tests:
+          - not_null
+      - name: quantity
+        description: "Always > 0 — quantity=0 rows filtered upstream"
+        tests:
+          - not_null
+      - name: order_status
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['completed', 'cancelled', 'refunded', 'partial_refund', 'pending']
+              config:
+                severity: warn
+      - name: is_cancelled
+        tests:
+          - not_null
+      - name: is_refunded
+        tests:
+          - not_null

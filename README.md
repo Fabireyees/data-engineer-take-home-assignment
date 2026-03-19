@@ -128,3 +128,84 @@ You will be evaluated on:
 If you have questions about the requirements, please reach out to your interviewer.
 
 Good luck!
+
+---
+
+## Solution Overview
+
+This project implements a dbt-based data pipeline that ingests, transforms, and unifies sales data from **Costco** (CSV), **Amazon** (Parquet), and **Shopify** (NDJSON) into a single `fct_sales` fact table.
+
+### Pipeline Architecture
+
+The pipeline follows a layered architecture:
+
+| Layer | Purpose |
+|-------|---------|
+| **Staging** (`stg_*`) | Source-specific cleaning, type casting, and normalization |
+| **Intermediate** (`int_*`) | Complex transformations (Shopify nested data explosion and pre-computations) |
+| **Mart** (`fct_sales`) | Unified fact table at line-item grain across all sources |
+
+### Key Design Decisions
+
+#### Granularity
+
+- The final table is at **line-item level** — each row represents one product within an order
+- `sale_id` is globally unique: `source_orderid_lineid` format
+
+#### Source-Specific Handling
+
+**Costco**
+- CSV ingestion with malformed row handling using `ignore_errors=true`
+- Monetary values cleaned from `$` strings
+- No tax, shipping, or refund data → set to `NULL` or `0.00`
+- All orders assumed completed (no status in source)
+
+**Amazon**
+- ISO timestamps split into `order_date` and `order_timestamp`
+- Status normalized: Shipped → `completed`, Returned → `refunded`, Cancelled → `cancelled`, Pending → `pending`
+- `net_amount` includes tax and shipping, minus refunds
+
+**Shopify**
+- Nested JSON exploded in `int_shopify_line_items`
+- Line-level amounts computed before staging
+- Tax allocated proportionally: `line_net_before_tax / order_net_before_tax`
+- No explicit shipping or refund at line level → set to `NULL`
+
+#### Data Quality Handling
+
+- Invalid rows filtered early (e.g., `quantity = 0` in Shopify)
+- Costco malformed row excluded when critical fields are null
+- No artificial values introduced — missing data preserved as `NULL`
+
+### Testing Strategy
+
+| Type | Tests |
+|------|-------|
+| **Generic** | `not_null`, `unique`, `accepted_values` |
+| **Custom (singular)** | Completed orders must not have negative `net_amount`; orders must not have future dates |
+
+### Validation Results
+
+### Validation Results
+
+- `dbt run` completed successfully for all 5 models
+- `dbt test` passed with **53/53 tests**
+- `dbt test --select fct_sales` passed with **16/16 tests**
+- No errors or warnings
+
+### Assumptions & Limitations
+
+- Currency is not explicitly provided in source data → assumed consistent
+- Shopify refunds are not available at line level in the sample → represented via flags only
+- Costco source lacks status and refund data → defaults applied
+- One malformed Costco row was excluded due to parsing issues in the CSV
+
+### How to Run
+
+```bash
+docker-compose up -d
+docker-compose exec dbt bash
+
+dbt run
+dbt test
+```

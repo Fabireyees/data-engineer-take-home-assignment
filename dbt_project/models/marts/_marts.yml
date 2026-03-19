@@ -1,34 +1,134 @@
-# Mart models schema
-# The primary deliverable is fct_sales - a unified sales fact table
-#
-# Expected schema for fct_sales:
-# - sale_id: Unique identifier (source_orderid_lineid)
-# - source_system: 'costco', 'amazon', 'shopify'
-# - source_order_id: Original order ID from source
-# - source_line_id: Line item identifier
-# - order_date: Normalized order date (DATE)
-# - order_timestamp: Full timestamp (TIMESTAMP, nullable for Costco)
-# - customer_id: Customer/member identifier
-# - product_id: SKU/ASIN
-# - product_name: Product description/title
-# - product_category: Category (nullable)
-# - quantity: Units sold (INTEGER)
-# - unit_price: Price per unit (DECIMAL)
-# - gross_amount: quantity * unit_price
-# - discount_amount: Discounts applied
-# - tax_amount: Tax (nullable)
-# - shipping_amount: Shipping cost (nullable)
-# - net_amount: Final amount after discounts
-# - refund_amount: Refund amount (nullable)
-# - ship_country: Shipping country (nullable)
-# - ship_region: State/province (nullable)
-# - ship_city: City (nullable)
-# - payment_method: Payment type
-# - order_status: 'completed', 'cancelled', 'refunded', 'partial_refund', 'pending'
-# - is_cancelled: Boolean flag
-# - is_refunded: Boolean flag
-# - loaded_at: Pipeline load timestamp
-
 version: 2
 
-models: []
+models:
+  - name: fct_sales
+    description: >
+      Unified sales fact table combining Costco, Amazon, and Shopify.
+      Granularity: one row per line item per order per source.
+      Monetary amounts standardized as DECIMAL(10,2); currency not explicitly provided in sample sources.
+      Cancelled and refunded orders are retained — filter using is_cancelled,
+      is_refunded, or order_status as needed downstream.
+
+    meta:
+      owner: data-engineering
+      sla: daily
+
+    columns:
+      - name: sale_id
+        description: "Globally unique line-item identifier: source_orderid_lineid"
+        tests:
+          - unique
+          - not_null
+
+      - name: source_system
+        description: "Source retail channel: costco | amazon | shopify"
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['costco', 'amazon', 'shopify']
+              config:
+                severity: error
+
+      - name: source_order_id
+        description: "Original order/transaction ID from the source system"
+        tests:
+          - not_null
+
+      - name: source_line_id
+        description: "Line item identifier within the order (SKU for Costco/Shopify, ASIN for Amazon)"
+
+      - name: order_date
+        description: "Normalized order date (DATE)"
+        tests:
+          - not_null
+
+      - name: order_timestamp
+        description: "Full timestamp (TIMESTAMP). Null for Costco — source has no time component."
+
+      - name: customer_id
+        description: "Customer/member identifier. NULL for Costco guest transactions."
+
+      - name: product_id
+        description: "SKU (Costco/Shopify) or ASIN (Amazon)"
+        tests:
+          - not_null
+
+      - name: product_name
+        description: "Product description or title"
+
+      - name: product_category
+        description: "Product category. Populated for Amazon only. NULL for Costco and Shopify."
+
+      - name: quantity
+        description: "Units sold. Always > 0 — quantity=0 rows filtered in staging."
+        tests:
+          - not_null
+
+      - name: unit_price
+        description: "Price per single unit (DECIMAL)"
+
+      - name: gross_amount
+        description: "quantity × unit_price before discounts"
+        tests:
+          - not_null
+
+      - name: discount_amount
+        description: "Discount applied to this line item. 0.00 where source has no discount data."
+
+      - name: tax_amount
+        description: >
+          Tax for this line item.
+          Null for Costco (not in source).
+          Proportionally allocated for Shopify using the line net-before-tax share of the order net-before-tax.
+
+      - name: shipping_amount
+        description: "Shipping cost. Populated for Amazon. Null for Costco and Shopify where not available at line level in sample."
+
+      - name: net_amount
+        description: "Final line amount after discounts, tax, shipping, and refunds according to source-specific logic."
+
+      - name: refund_amount
+        description: >
+          Refund amount.
+          Populated for Amazon Returned orders (from source).
+          Null for Costco (no refund data) and Shopify (no per-line refund in sample).
+
+      - name: ship_country
+        description: "Shipping country from the source system."
+
+      - name: ship_region
+        description: "State or province. Null for international orders without state-level data."
+
+      - name: ship_city
+        description: "Shipping or store city"
+
+      - name: payment_method
+        description: >
+          Payment method or gateway.
+          Null for Amazon (fulfillment_channel describes logistics, not payment).
+
+      - name: order_status
+        description: "Normalized status across all sources: completed | cancelled | refunded | partial_refund | pending"
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['completed', 'cancelled', 'refunded', 'partial_refund', 'pending']
+              config:
+                severity: error
+
+      - name: is_cancelled
+        description: "Boolean flag: true if the order was cancelled"
+        tests:
+          - not_null
+
+      - name: is_refunded
+        description: "Boolean flag: true if the order was fully or partially refunded"
+        tests:
+          - not_null
+
+      - name: loaded_at
+        description: "Timestamp when this row was loaded by the pipeline (current_timestamp at run time)"
+        tests:
+          - not_null

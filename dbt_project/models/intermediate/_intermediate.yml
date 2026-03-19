@@ -1,0 +1,25 @@
+version: 2
+
+models:
+  - name: int_shopify_line_items
+    description: >
+      Intermediate Shopify model that explodes line_items from NDJSON and computes
+      line-level amounts plus order-level net-before-tax using a window function.
+      Keeps line-item grain while preparing proportional tax allocation upstream
+      of stg_shopify_sales.
+    meta:
+      owner: data-engineering
+      source_file: data/samples/shopify_sample.json
+    columns:
+      - name: order_id
+        tests:
+          - not_null
+      - name: line_gross
+        tests:
+          - not_null
+      - name: line_net_before_tax
+        tests:
+          - not_null
+      - name: order_net_before_tax
+        tests:
+          - not_null
