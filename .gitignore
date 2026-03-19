@@ -33,3 +33,4 @@ data/*.json
 # OS
 .DS_Store
 Thumbs.db
+dbt_project/.user.yml
